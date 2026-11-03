@@ -1,68 +1,91 @@
 import streamlit as st
 import pandas as pd
+import requests
 
-st.set_page_config(page_title="Türkiye Tarım ve Damla Sulama Bayileri Arama Portalı", page_icon="🌱", layout="wide")
+st.set_page_config(page_title="Türkiye Geneli Canlı Tarım Bayileri Portalı", page_icon="🌱", layout="wide")
 
-st.title("🌱 Türkiye Tarım, Gübre ve Damla Sulama Bayileri Arama Portalı")
-st.write("İl seçimi yaparak bölgedeki tescilli tarım, gübre ve damla sulama bayilerini anında listeleyebilir, arama yapabilir ve indirebilirsiniz.")
+st.title("🌱 Türkiye Geneli Canlı Tarım, Gübre ve Damla Sulama Bayileri Portalı")
+st.write("Bu portal, seçtiğiniz ildeki tescilli tarım, gübre ve damla sulama bayilerini harita veritabanından **anlık ve otomatik olarak** tarayıp listeler.")
 
-# Gerçek bayi verilerini içeren yerleşik veritabanı
-database = {
-    "Bursa": [
-        {"Firma İsmi": "Öz Bursa Tarım ve Sulama", "İlçe/Konum": "Osmangazi", "Açık Adres": "Santral Garaj Mah. Başaran Sk. No:12", "Telefon": "(0224) 254 12 34", "Web Sitesi": "www.ozbursatarim.com", "E-posta": "info@ozbursatarim.com"},
-        {"Firma İsmi": "Güney Tarım Gübre ve Zirai Aletler", "İlçe/Konum": "İnegöl", "Açık Adres": "Osmaniye Mah. Stadyum Cad. No:45", "Telefon": "(0224) 715 88 90", "Web Sitesi": "www.guneytariminegol.com", "E-posta": "destek@guneytariminegol.com"},
-        {"Firma İsmi": "Nilüfer Damla Sulama Sistemleri", "İlçe/Konum": "Nilüfer", "Açık Adres": "Çalı Sanayi Bölgesi 2. Sk. No:8", "Telefon": "(0224) 441 55 60", "Web Sitesi": "www.nilufersulama.com", "E-posta": "satis@nilufersulama.com"},
-        {"Firma İsmi": "Karacabey Tarım Market", "İlçe/Konum": "Karacabey", "Açık Adres": "Runguçpaşa Mah. Bursa Cad. No:34", "Telefon": "(0224) 676 11 22", "Web Sitesi": "-", "E-posta": "-"},
-        {"Firma İsmi": "Anadolu Gübreleme ve Sulama Ltd.", "İlçe/Konum": "Mustafakemalpaşa", "Açık Adres": "Yüzbaşı Sabri Bey Mah. No:15", "Telefon": "(0224) 613 78 45", "Web Sitesi": "www.anadolugubre.com.tr", "E-posta": "iletisim@anadolugubre.com.tr"}
-    ],
-    "Ankara": [
-        {"Firma İsmi": "Başkent Damla Sulama Sistemleri", "İlçe/Konum": "Altındağ", "Açık Adres": "Hacı Bayram Mah. Kazım Karabekir Cad. No:74", "Telefon": "(0312) 310 41 17", "Web Sitesi": "www.baskentsulama.com", "E-posta": "info@baskentsulama.com"},
-        {"Firma İsmi": "Polatlı Ziraat ve Gübre Deposu", "İlçe/Konum": "Polatlı", "Açık Adres": "Şentepe Mah. Ankara Cad. No:88", "Telefon": "(0312) 623 44 55", "Web Sitesi": "-", "E-posta": "polatlitarim@gmail.com"},
-        {"Firma İsmi": "Ostim Tarımsal Ekipmanlar", "İlçe/Konum": "Yenimahalle", "Açık Adres": "Ostim OSB Alınteri Blv. No:210", "Telefon": "(0312) 395 88 61", "Web Sitesi": "www.ostimtarim.com", "E-posta": "destek@ostimtarim.com"}
-    ],
-    "Konya": [
-        {"Firma İsmi": "Bayraktar Tarım Sulama ve Gübre", "İlçe/Konum": "Karatay", "Açık Adres": "Fevziçakmak Mah. 10484. Sk. No:21", "Telefon": "(0332) 342 14 25", "Web Sitesi": "www.bayraktartarim.com", "E-posta": "info@bayraktartarim.com"},
-        {"Firma İsmi": "Cansuyu Plastik ve Sulama", "İlçe/Konum": "Selçuklu", "Açık Adres": "Yeni İstanbul Cad. No:362/A", "Telefon": "(0332) 248 99 10", "Web Sitesi": "www.cansuyuplastik.com", "E-posta": "satis@cansuyuplastik.com"},
-        {"Firma İsmi": "Çumra Zirai İlaç ve Gübre Bayii", "İlçe/Konum": "Çumra", "Açık Adres": "İzzetbey Mah. Atatürk Cad. No:12", "Telefon": "(0332) 881 20 30", "Web Sitesi": "-", "E-posta": "-"}
-    ],
-    "İzmir": [
-        {"Firma İsmi": "Ege Tarım ve Sulama Teknolojileri", "İlçe/Konum": "Bornova", "Açık Adres": "IV. Sanayi Sitesi 528. Sk. No:14", "Telefon": "(0232) 462 11 22", "Web Sitesi": "www.egetarimsulama.com", "E-posta": "info@egetarimsulama.com"},
-        {"Firma İsmi": "Tire Gübre ve Tarım Ürünleri", "İlçe/Konum": "Tire", "Açık Adres": "Fatih Mah. İpekçi Cad. No:45", "Telefon": "(0232) 512 33 44", "Web Sitesi": "-", "E-posta": "tiretarim@hotmail.com"}
-    ],
-    "Antalya": [
-        {"Firma İsmi": "Akdeniz Sera ve Damla Sulama", "İlçe/Konum": "Aksu", "Açık Adres": "Serik Cad. No:110", "Telefon": "(0242) 340 50 60", "Web Sitesi": "www.akdenizsulama.com", "E-posta": "destek@akdenizsulama.com"},
-        {"Firma İsmi": "Toros Tarım Gübre Bayii", "İlçe/Konum": "Kepez", "Açık Adres": "Fevzi Çakmak Mah. Karacaoğlan Cad. No:22", "Telefon": "(0242) 221 33 22", "Web Sitesi": "-", "E-posta": "-"}
-    ]
-}
+# Türkiye'nin 81 ilinin listesi
+all_81_cities = [
+    "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", 
+    "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", 
+    "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", 
+    "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", 
+    "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", 
+    "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", 
+    "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", 
+    "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", 
+    "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Şanlıurfa", "Şırnak", "Tekirdağ", 
+    "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"
+]
 
-# Sol menüden il seçimi
-city_list = sorted(list(database.keys()))
-selected_city = st.sidebar.selectbox("Bir İl Seçin:", city_list)
+selected_city = st.sidebar.selectbox("Türkiye 81 İl Seçimi:", sorted(all_81_cities))
+
+# Canlı harita sorgulama fonksiyonu
+@st.cache_data(ttl=1800)
+def fetch_live_data_from_map(city):
+    url = "https://overpass-api.de/api/interpreter"
+    # Harita üzerinde tarım, gübre, sulama ve ziraat bayilerini arayan esnek sorgu
+    query = f"""
+    [out:json][timeout:30];
+    area[name="{city}"]->.searchArea;
+    (
+      node["shop"~"agrarian|farm|hardware|garden"](area.searchArea);
+      way["shop"~"agrarian|farm|hardware|garden"](area.searchArea);
+      node["name"~"tarım|gübre|sulama|ziraat|tohum|agro", i](area.searchArea);
+      way["name"~"tarım|gübre|sulama|ziraat|tohum|agro", i](area.searchArea);
+    );
+    out body;
+    >;
+    out skel qt;
+    """
+    try:
+        response = requests.post(url, data={'data': query}, timeout=35)
+        if response.status_code == 200:
+            data = response.json()
+            elements = data.get("elements", [])
+            results = []
+            for el in elements:
+                tags = el.get("tags", {})
+                name = tags.get("name")
+                if name:
+                    results.append({
+                        "Firma İsmi": name,
+                        "İlçe/Konum": tags.get("addr:suburb", tags.get("addr:district", "Merkez")),
+                        "Açık Adres": tags.get("addr:street", tags.get("addr:full", "-")),
+                        "Telefon": tags.get("phone", tags.get("contact:phone", "-")),
+                        "Web Sitesi": tags.get("website", tags.get("contact:website", "-")),
+                        "E-posta": tags.get("email", "-")
+                    })
+            return pd.DataFrame(results).drop_duplicates(subset=["Firma İsmi"])
+    except Exception as e:
+        print(f"Hata: {e}")
+    return pd.DataFrame()
 
 st.sidebar.markdown("---")
-if st.sidebar.button("🔍 Bayileri Listele"):
-    data = database.get(selected_city, [])
-    df = pd.DataFrame(data)
-    
-    if not df.empty:
-        st.success(f"{selected_city} için {len(df)} adet tescilli bayi listelendi!")
+if st.sidebar.button("🔍 Canlı Verileri Tara ve Listele"):
+    with st.spinner(f"{selected_city} için harita veritabanından canlı bayiler taranıyor, lütfen bekleyin..."):
+        df = fetch_live_data_from_map(selected_city)
         
-        # Arama kutusu
-        search_query = st.text_input("Firma İsmi İçinde Ara:", "")
-        if search_query:
-            df = df[df["Firma İsmi"].str.contains(search_query, case=False, na=False)]
+        if not df.empty:
+            st.success(f"{selected_city} için canlı tarama tamamlandı: {len(df)} adet işletme bulundu!")
             
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        # Excel/CSV İndirme Butonu
-        csv_data = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label=f"📥 {selected_city} Bayi Listesini İndir (CSV/Excel)",
-            data=csv_data,
-            file_name=f"{selected_city}_tarim_bayileri.csv",
-            mime="text/csv"
-        )
-    else:
-        st.warning(f"{selected_city} için kayıt bulunamadı.")
+            search_query = st.text_input("Firma İsmi İçinde Filtrele:", "")
+            if search_query:
+                df = df[df["Firma İsmi"].str.contains(search_query, case=False, na=False)]
+                
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            csv_data = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label=f"📥 {selected_city} Canlı Listeyi İndir (CSV/Excel)",
+                data=csv_data,
+                file_name=f"{selected_city}_canli_tarim_bayileri.csv",
+                mime="text/csv"
+            )
+        else:
+            st.warning(f"{selected_city} için harita veritabanında bu kriterlere uygun anlık kayıt dönmedi. Alternatif olarak il merkezli ziraat odaları ve tarım kooperatifleri sorgulanabilir.")
 else:
-    st.info("Sol menüden ilinizi seçip **'Bayileri Listele'** butonuna basarak güncel bayi listesine anında ulaşabilirsiniz.")
+    st.info("Sol menüden dilediğiniz ili seçip **'Canlı Verileri Tara ve Listele'** butonuna basarak harita üzerinden otomatik ve anlık sonuç alabilirsiniz.")
