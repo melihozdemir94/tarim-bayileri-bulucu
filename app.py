@@ -5,9 +5,8 @@ import requests
 st.set_page_config(page_title="Türkiye Geneli Canlı Tarım Bayileri Portalı", page_icon="🌱", layout="wide")
 
 st.title("🌱 Türkiye Geneli Canlı Tarım, Gübre ve Damla Sulama Bayileri Portalı")
-st.write("Bu portal, seçtiğiniz ildeki tescilli tarım, gübre ve damla sulama bayilerini harita veritabanından **anlık ve otomatik olarak** tarayıp listeler.")
+st.write("Seçtiğiniz il, harita koordinat sisteminden anlık olarak taranarak tescilli tarım, gübre ve sulama bayileri listelenir.")
 
-# Türkiye'nin 81 ilinin listesi
 all_81_cities = [
     "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", 
     "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", 
@@ -23,54 +22,67 @@ all_81_cities = [
 
 selected_city = st.sidebar.selectbox("Türkiye 81 İl Seçimi:", sorted(all_81_cities))
 
-# Canlı harita sorgulama fonksiyonu
 @st.cache_data(ttl=1800)
-def fetch_live_data_from_map(city):
-    url = "https://overpass-api.de/api/interpreter"
-    # Harita üzerinde tarım, gübre, sulama ve ziraat bayilerini arayan esnek sorgu
-    query = f"""
-    [out:json][timeout:30];
-    area[name="{city}"]->.searchArea;
-    (
-      node["shop"~"agrarian|farm|hardware|garden"](area.searchArea);
-      way["shop"~"agrarian|farm|hardware|garden"](area.searchArea);
-      node["name"~"tarım|gübre|sulama|ziraat|tohum|agro", i](area.searchArea);
-      way["name"~"tarım|gübre|sulama|ziraat|tohum|agro", i](area.searchArea);
-    );
-    out body;
-    >;
-    out skel qt;
-    """
+def fetch_live_data_with_bbox(city):
     try:
-        response = requests.post(url, data={'data': query}, timeout=35)
-        if response.status_code == 200:
-            data = response.json()
-            elements = data.get("elements", [])
-            results = []
-            for el in elements:
-                tags = el.get("tags", {})
-                name = tags.get("name")
-                if name:
-                    results.append({
-                        "Firma İsmi": name,
-                        "İlçe/Konum": tags.get("addr:suburb", tags.get("addr:district", "Merkez")),
-                        "Açık Adres": tags.get("addr:street", tags.get("addr:full", "-")),
-                        "Telefon": tags.get("phone", tags.get("contact:phone", "-")),
-                        "Web Sitesi": tags.get("website", tags.get("contact:website", "-")),
-                        "E-posta": tags.get("email", "-")
-                    })
-            return pd.DataFrame(results).drop_duplicates(subset=["Firma İsmi"])
+        # 1. Adım: İl sınırlarının koordinatlarını (Bounding Box) Nominatim ile bul
+        nom_url = f"https://nominatim.openstreetmap.org/search?city={city}&country=Turkey&format=json"
+        headers = {'User-Agent': 'TarimBayiPortali/1.0'}
+        res = requests.get(nom_url, headers=headers, timeout=10)
+        
+        if res.status_code == 200 and res.json():
+            place = res.json()[0]
+            bbox = place.get("boundingbox") # [lat_min, lat_max, lon_min, lon_max]
+            
+            if bbox:
+                south, north, west, east = bbox[0], bbox[1], bbox[2], bbox[3]
+                
+                # 2. Adım: Koordinat sınırları içinde Overpass API ile tarım/gübre bayilerini tara
+                overpass_url = "https://overpass-api.de/api/interpreter"
+                query = f"""
+                [out:json][timeout:25];
+                (
+                  node["shop"~"agrarian|farm|hardware|garden"]({south},{west},{north},{east});
+                  way["shop"~"agrarian|farm|hardware|garden"]({south},{west},{north},{east});
+                  node["name"~"tarım|gübre|sulama|ziraat|tohum|agro|fide", i]({south},{west},{north},{east});
+                  way["name"~"tarım|gübre|sulama|ziraat|tohum|agro|fide", i]({south},{west},{north},{east});
+                );
+                out body;
+                >;
+                out skel qt;
+                """
+                
+                response = requests.post(overpass_url, data={'data': query}, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    elements = data.get("elements", [])
+                    results = []
+                    for el in elements:
+                        tags = el.get("tags", {})
+                        name = tags.get("name")
+                        if name:
+                            results.append({
+                                "Firma İsmi": name,
+                                "İlçe/Konum": tags.get("addr:suburb", tags.get("addr:district", "Merkez")),
+                                "Açık Adres": tags.get("addr:street", tags.get("addr:full", "-")),
+                                "Telefon": tags.get("phone", tags.get("contact:phone", "-")),
+                                "Web Sitesi": tags.get("website", tags.get("contact:website", "-")),
+                                "E-posta": tags.get("email", "-")
+                            })
+                    if results:
+                        return pd.DataFrame(results).drop_duplicates(subset=["Firma İsmi"])
     except Exception as e:
         print(f"Hata: {e}")
+        
     return pd.DataFrame()
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔍 Canlı Verileri Tara ve Listele"):
-    with st.spinner(f"{selected_city} için harita veritabanından canlı bayiler taranıyor, lütfen bekleyin..."):
-        df = fetch_live_data_from_map(selected_city)
+    with st.spinner(f"{selected_city} koordinatları üzerinden canlı tarama yapılıyor, lütfen bekleyin..."):
+        df = fetch_live_data_with_bbox(selected_city)
         
         if not df.empty:
-            st.success(f"{selected_city} için canlı tarama tamamlandı: {len(df)} adet işletme bulundu!")
+            st.success(f"{selected_city} taraması başarılı: {len(df)} adet işletme bulundu!")
             
             search_query = st.text_input("Firma İsmi İçinde Filtrele:", "")
             if search_query:
@@ -80,12 +92,12 @@ if st.sidebar.button("🔍 Canlı Verileri Tara ve Listele"):
             
             csv_data = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                label=f"📥 {selected_city} Canlı Listeyi İndir (CSV/Excel)",
+                label=f"📥 {selected_city} Canlı Listeyi İndir (Excel/CSV)",
                 data=csv_data,
                 file_name=f"{selected_city}_canli_tarim_bayileri.csv",
                 mime="text/csv"
             )
         else:
-            st.warning(f"{selected_city} için harita veritabanında bu kriterlere uygun anlık kayıt dönmedi. Alternatif olarak il merkezli ziraat odaları ve tarım kooperatifleri sorgulanabilir.")
+            st.warning(f"{selected_city} için harita katmanında bu kriterlere doğrudan uyan işletme etiketi bulunamadı. (Bölgedeki bazı küçük bayiler harita sistemine kayıtlı olmayabilir).")
 else:
-    st.info("Sol menüden dilediğiniz ili seçip **'Canlı Verileri Tara ve Listele'** butonuna basarak harita üzerinden otomatik ve anlık sonuç alabilirsiniz.")
+    st.info("Sol menüden dilediğiniz ili seçip **'Canlı Verileri Tara ve Listele'** butonuna basarak koordinat tabanlı anlık sonuç alabilirsiniz.")
