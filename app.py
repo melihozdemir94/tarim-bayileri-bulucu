@@ -1,50 +1,72 @@
 import streamlit as st
 import pandas as pd
-import os
+import requests
 
 st.set_page_config(page_title="Tarım ve Damla Sulama Bayileri Arama Portalı", page_icon="🌱", layout="wide")
 
 st.title("🌱 Türkiye Tarım, Gübre ve Damla Sulama Bayileri Arama Portalı")
-st.write("Bu platform üzerinden coğrafi bölge ve il seçimi yaparak kayıtlı tüm tarım bayilerini listeleyebilir, arama yapabilir ve Excel olarak indirebilirsiniz.")
+st.write("İl seçimi yaparak bölgedeki tescilli tarım, gübre ve damla sulama bayilerini anlık olarak listeleyebilirsiniz.")
 
-regions = {
-    "İç Anadolu Bölgesi": "Ic_Anadolu_Tarim_Bayileri.xlsx",
-    "Marmara Bölgesi": "Marmara_Tarim_Bayileri.xlsx",
-    "Ege Bölgesi": "Ege_Tarim_Bayileri.xlsx",
-    "Akdeniz Bölgesi": "Akdeniz_Tarim_Bayileri.xlsx",
-    "Karadeniz Bölgesi": "Karadeniz_Tarim_Bayileri.xlsx",
-    "Doğu Anadolu Bölgesi": "Dogu_Anadolu_Tarim_Bayileri.xlsx",
-    "Güneydoğu Anadolu Bölgesi": "Guneydogu_Anadolu_Tarim_Bayileri.xlsx"
-}
+# Türkiye'nin illeri listesi
+cities_turkey = [
+    "Ankara", "Konya", "İzmir", "İstanbul", "Bursa", "Antalya", "Adana", "Mersin", 
+    "Kayseri", "Eskişehir", "Sivas", "Manisa", "Aydın", "Denizli", "Balıkesir", 
+    "Samsun", "Trabzon", "Gaziantep", "Diyarbakır", "Şanlıurfa", "Aksaray", "Karaman"
+]
 
-st.sidebar.header("🔍 Arama ve Filtreleme")
-selected_region_name = st.sidebar.selectbox("Bir Coğrafi Bölge Seçin:", list(regions.keys()))
-file_name = regions[selected_region_name]
+selected_city = st.sidebar.selectbox("Bir İl Seçin:", sorted(cities_turkey))
 
-if os.path.exists(file_name):
-    xls = pd.ExcelFile(file_name)
-    cities = xls.sheet_names
-    
-    selected_city = st.sidebar.selectbox("Bir İl Seçin:", cities)
-    df = pd.read_excel(xls, sheet_name=selected_city)
-    
-    search_query = st.text_input("İçeride Firma İsmi Ara (Örn: Ziraat, Gübre vb.):", "")
-    if search_query:
-        df = df[df["Firma İsmi"].str.contains(search_query, case=False, na=False)]
-    
-    st.subheader(f"📍 {selected_city} - Bayi Listesi ({len(df)} Kayıt Bulundu)")
-    
-    if not df.empty:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+@st.cache_data(ttl=3600)
+def get_live_osm_data(city):
+    url = "https://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:20];
+    area[name="{city}"]->.searchArea;
+    (
+      node["shop"~"agrarian|farm"](area.searchArea);
+      node["name"~"tarım|gübre|sulama|ziraat", i](area.searchArea);
+    );
+    out body;
+    """
+    try:
+        response = requests.post(url, data={'data': query}, timeout=25)
+        if response.status_code == 200:
+            data = response.json()
+            elements = data.get("elements", [])
+            results = []
+            for el in elements:
+                tags = el.get("tags", {})
+                if "name" in tags:
+                    results.append({
+                        "Firma İsmi": tags.get("name"),
+                        "İlçe/Konum": tags.get("addr:suburb", "Merkez"),
+                        "Açık Adres": tags.get("addr:street", "-"),
+                        "Telefon": tags.get("phone", tags.get("contact:phone", "-")),
+                        "Web Sitesi": tags.get("website", tags.get("contact:website", "-")),
+                        "E-posta": tags.get("email", "-")
+                    })
+            return pd.DataFrame(results)
+    except Exception as e:
+        st.error(f"Veri çekilirken bir hata oluştu: {e}")
+    return pd.DataFrame()
+
+if st.sidebar.button("🔍 Bayileri Listele"):
+    with st.spinner(f"{selected_city} için gerçek bayi verileri taranıyor, lütfen bekleyin..."):
+        df = get_live_osm_data(selected_city)
         
-        with open(file_name, "rb") as f:
+        if not df.empty:
+            st.success(f"{selected_city} için {len(df)} adet işletme bulundu!")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Excel olarak indirme
+            csv_data = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                label=f"📥 {selected_region_name} Tüm Bölge Excel Raporunu İndir",
-                data=f,
-                file_name=file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                label=f"📥 {selected_city} Listesini CSV/Excel İndir",
+                data=csv_data,
+                file_name=f"{selected_city}_tarim_bayileri.csv",
+                mime="text/csv"
             )
-    else:
-        st.info("Bu kriterlere uygun kayıt bulunamadı.")
+        else:
+            st.info(f"{selected_city} için harita kayıtlarında eşleşen sonuç bulunamadı.")
 else:
-    st.warning(f"⚠️ {selected_region_name} için veri dosyası henüz oluşturulmamış. Lütfen GitHub deponuzdaki Actions sekmesinden botu çalıştırıp verilerin oluşmasını sağlayın.")
+    st.info("Sol menüden il seçip **'Bayileri Listele'** butonuna basarak anında güncel listeye ulaşabilirsiniz.")
